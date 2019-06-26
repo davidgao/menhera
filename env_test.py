@@ -4,10 +4,16 @@ import os
 import sys
 
 # Functions and references for testing
+def error(msg):
+    sys.stderr.write(msg)
+
+def fatal(msg, code=1):
+    error('FATAL: {}'.format(msg))
+    exit(code)
 
 def print_exception(ex):
-    print('An unknown exception occured, detailed as follows:')
-    print('{e.__class__}: {e}'.format(e=ex))
+    error('An unknown exception occured, detailed as follows:')
+    error('{e.__class__}: {e}'.format(e=ex))
 
 def path_find_or_workaround(dir):
     path = os.environ['PATH'].split(':')
@@ -109,76 +115,56 @@ try:
     child.communicate()
     results['subprocess'] = True
 except ImportError as err:
-    print('Subprocess module failed upon import. Details below:')
-    print(err)
-    results['subprocess'] = False
+    error('Subprocess module failed upon import. Details below:')
+    error(err)
+    fatal('Cannot use python as shell. Aborting.')
 except AttributeError as err:
     missing_attr = str(err).split()[5]
-    print('Subprocess module has an attribute {} missing.'.format(missing_attr))
-    results['subprocess'] = False
+    error('Subprocess module has an attribute {} missing.'.format(missing_attr))
+    fatal('Cannot use python as shell. Aborting.')
 except Exception as ex:
     print_exception(ex)
-    results['subprocess'] = False
-# Apply workarounds
-if results['subprocess']:
-    # Run
-    try:
-        subprocess.run('/bin/true')
-        fork_and_exec = exec_with_run
-    except AttributeError:
-        fork_and_exec = exec_with_popen
-        print("Workaround: Using 'Popen' as 'fork_and_exec' because 'run' is missing.")
+    fatal('Cannot use python as shell. Aborting.')
+# Apply workaround iff needed
+try:
+    subprocess.run('/bin/true')
+    fork_and_exec = exec_with_run
+except AttributeError:
+    fork_and_exec = exec_with_popen
+    print("Workaround: Using 'Popen' as 'fork_and_exec' because 'run' is missing.")
 # Test actual functionalities
-if results['subprocess']:
-    # Exec, returning zero
+try:
     print('Test: Exec returning zero.')
-    try:
-        ret, _, _ = fork_and_exec('/bin/true')
-        assert ret == 0
-    except Exception as ex:
-        print_exception(ex)
-        results['subprocess'] = False
-    # Exec, returning non-zero
+    ret, _, _ = fork_and_exec('/bin/true')
+    assert ret == 0
     print('Test: Exec returning non-zero.')
-    try:
-        ret, _, _ = fork_and_exec('/bin/false')
-        assert ret == 1
-    except Exception as exception:
-        print_exception(exception)
-        results['subprocess'] = False
-    # Exec, writing to stdout
+    ret, _, _ = fork_and_exec('/bin/false')
+    assert ret == 1
     print('Test: Exec writing to stdout.')
-    try:
-        _, stdout, _ = fork_and_exec('/bin/echo', '-n', 'HELLO')
-        assert stdout =='HELLO'
-    except Exception as exception:
-        print_exception(exception)
-        results['subprocess'] = False
-    # Exec, writing to stderr
+    _, stdout, _ = fork_and_exec('/bin/echo', '-n', 'HELLO')
+    assert stdout =='HELLO'
     print('Test: Exec writing to stderr.')
-    try:
-        _, _, stderr = fork_and_exec('/bin/sh', '-c', 'printf HELLO>&2')
-        assert stderr =='HELLO'
-    except Exception as exception:
-        print_exception(exception)
-        results['subprocess'] = False
+    _, _, stderr = fork_and_exec('/bin/sh', '-c', 'printf HELLO>&2')
+    assert stderr =='HELLO'
+except Exception as ex:
+    print_exception(ex)
+    fatal('Critical test failed. Does not trust python as shell. Aborting.')
 # Conclusion
-if results['subprocess']:
-    print('Subprocess module valid.')
-else:
-    print('Subprocess module missing or unusable.')
-    print('Built-in workarounds did not help.')
-    print('Further tests MAY have been skipped.')
+print('Subprocess module valid.')
 print('')
 
 # $PATH
-path_find_or_workaround('/usr/local/sbin')
-path_find_or_workaround('/usr/local/bin')
-path_find_or_workaround('/usr/sbin')
-path_find_or_workaround('/usr/bin')
-path_find_or_workaround('/sbin')
-path_find_or_workaround('/bin')
+print('Before workarounds: $PATH={}'.format(os.environ['PATH']))
+list(map(path_find_or_workaround, [
+    '/usr/local/sbin',
+    '/usr/local/bin',
+    '/usr/sbin',
+    '/usr/bin',
+    '/sbin',
+    '/bin'
+]))
 results['path'] = True
+print('After workarounds: $PATH={}'.format(os.environ['PATH']))
 print('$PATH valid.')
 print('')
 
