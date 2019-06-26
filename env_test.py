@@ -35,21 +35,38 @@ def exec_with_run(*args):
 
 def which_a(bin):
     ret, stdout, _ = fork_and_exec('which', '-a', bin)
-    if ret != 0:
-        executables = []
-    else:
+    executables = []
+    real_executables = []
+    if ret == 0:
         executables = stdout.split('\n')
+        # remove the empty line
         executables.pop()
-    if len(executables) == 0:
+    # generate symlink traces
+    def trace_symlink(path):
+        trace = [path]
+        while os.path.islink(path):
+            target = os.readlink(path)
+            target = os.path.join(os.path.dirname(path), target)
+            target = os.path.normpath(target)
+            trace.append(target)
+            path = target
+        trace = '->'.join(trace)
+        # make sure we count real executables correctly
+        if path not in real_executables:
+            real_executables.append(path)
+        return trace
+    executables = list(map(trace_symlink, executables))
+    if len(real_executables) == 0:
         results[bin] = False
-        print('{} invalid.'.format(bin))
-    elif len(executables) == 1:
+        print('{} not found.'.format(bin))
+    elif len(real_executables) == 1:
         results[bin] = True
-        print('{} valid at {}'.format(bin, executables[0]))
+        print('{} found at {}.'.format(bin, executables))
+        print('The real executable is {}.'.format(real_executables[0]))
         print('--------------')
     else:
         results[bin] = True
-        warning = '{} is found multiple times at {}.'.format(bin, executables)
+        warning = '{} found multiple times at {}.'.format(bin, executables)
         warnings.append(warning)
         print(warning)
         print('--------------')
