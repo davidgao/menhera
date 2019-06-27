@@ -4,6 +4,15 @@ import os
 import sys
 
 # Functions and references for testing
+
+def workaround(msg):
+    workarounds.append(msg)
+    print('WORKAROUND: ' + msg)
+
+def warn(msg):
+    warnings.append(msg)
+    print('WARNING: ' + msg)
+
 def error(msg):
     sys.stderr.write(msg)
 
@@ -20,7 +29,7 @@ def path_find_or_workaround(dir):
     if dir not in path:
         path.append(dir)
         os.environ['PATH'] = ':'.join(path)
-        print('Workaround: Appending {} to $PATH'.format(dir))
+        workaround('Append {} to $PATH.')
 
 def exec_with_popen(*args):
     child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -64,7 +73,7 @@ def which_a(bin):
     executables = list(map(trace_symlink, executables))
     if len(real_executables) == 0:
         results[bin] = False
-        print('{} not found.'.format(bin))
+        warn('{} not found.'.format(bin))
     elif len(real_executables) == 1:
         results[bin] = True
         print('{} found at {}.'.format(bin, executables))
@@ -72,9 +81,7 @@ def which_a(bin):
         print('--------------')
     else:
         results[bin] = True
-        warning = '{} found multiple times at {}.'.format(bin, executables)
-        warnings.append(warning)
-        print(warning)
+        warn('{} found multiple times at {}.'.format(bin, executables))
         print('--------------')
 
 def try_run(bin, *args):
@@ -82,13 +89,14 @@ def try_run(bin, *args):
     if ret == 0:
         print(stdout)
     else:
-        results[bin] = False
-        print('{} does not function as expected.'.format(bin))
+        warn('{} does not respond to {} as expected.'.format(bin, ' '.join(args)))
         print('')
+    return (ret == 0)
 
 fork_and_exec = None
 results = dict()
 warnings = []
+workarounds = []
 
 # Test logic
 
@@ -131,7 +139,7 @@ try:
     fork_and_exec = exec_with_run
 except AttributeError:
     fork_and_exec = exec_with_popen
-    print("Workaround: Using 'Popen' as 'fork_and_exec' because 'run' is missing.")
+    workaround('Using subprocess.Popen() in fork_and_exec() because subprocess.run() is missing.')
 # Test actual functionalities
 try:
     print('Test: Exec returning zero.')
@@ -165,7 +173,7 @@ list(map(path_find_or_workaround, [
 ]))
 results['path'] = True
 print('After workarounds: $PATH={}'.format(os.environ['PATH']))
-print('$PATH valid.')
+print('$PATH sane.')
 print('')
 
 # System executables
@@ -173,60 +181,95 @@ print('')
 # which
 which_a('which')
 if results['which']:
+    # Some versions of 'which' does not support version reporting
+    # It should work just fine because 'which which' is working
+    # A warning is emitted
     try_run('which', '--version')
 
 # curl
 which_a('curl')
 if results['curl']:
-    try_run('curl', '--version')
+    results['curl'] = try_run('curl', '--version')
 
 # sync
 which_a('sync')
 if results['sync']:
-    try_run('sync', '--version')
+    results['sync'] = try_run('sync', '--version')
 
 # modprobe
 which_a('modprobe')
 if results['modprobe']:
-    try_run('modprobe', '--version')
+    results['modprobe'] = try_run('modprobe', '--version')
 
 # sysctl
 which_a('sysctl')
 if results['sysctl']:
-    try_run('sysctl', '--version')
+    results['sysctl'] = try_run('sysctl', '--version')
 
 # mkdir
 which_a('mkdir')
 if results['mkdir']:
-    try_run('mkdir', '--version')
+    results['mkdir'] = try_run('mkdir', '--version')
 
 # mount
 which_a('mount')
 if results['mount']:
-    try_run('mount', '--version')
+    results['mount'] = try_run('mount', '--version')
 
 # cp
 which_a('cp')
 if results['cp']:
-    try_run('cp', '--version')
+    results['cp'] = try_run('cp', '--version')
 
 # chroot
 which_a('chroot')
 if results['chroot']:
-    try_run('chroot', '--version')
+    results['chroot'] = try_run('chroot', '--version')
 
 # systemctl
 which_a('systemctl')
 if results['systemctl']:
-    try_run('systemctl', '--version')
+    results['systemctl'] = try_run('systemctl', '--version')
 
 # service
 which_a('service')
 if results['service']:
-    try_run('service', '--version')
+    results['service'] = try_run('service', '--version')
+if not results['systemctl']:
+    if results['service']:
+        workaround('Using service instead of systemctl.')
+    else:
+        fatal('No supported service control system found.')
 
 # telinit
 which_a('telinit')
-if results['telinit']:
-    print('telinit does not support dry run (which is expected), skipping.')
+# telinit does not support dry run (which is expected), skipping
+print('Cannot report version of telinit because it does not have such functionality.')
+print('This is NOT a warning.')
+print('')
+if not results['systemctl']:
+    if results['telinit']:
+        workaround('Using telinit instead of systemctl.')
+    else:
+        fatal('No supported runlevel control system found.')
+
+# Summary
+
+print('==============')
+print('')
+
+if len(workarounds) > 0:
+    print('SUMMARY OF WORKAROUNDS:')
+    for i in workarounds:
+        print(i)
+        print('')
+
+if len(warnings) > 0:
+    print('SUMMARY OF WARNINGS:')
+    for i in warnings:
+        print(i)
     print('')
+    print('CONCLUSION: Runtime MAY be sane. Check logs.')
+else:
+    print('CONCLUSION: Runtime SHOULD be sane. We still recommend checking logs.')
+
